@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building Convexa - a product teardown by Hari</title>
+<meta name="description" content="How I set the architecture and go-to-market for a B2B conversational agent at Nagent AI: compiled per-customer prompts, guardrail precedence, strict grounding, an eval release gate, and per-conversation pricing.">
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --muted: #5a5a5a;
+    --navy: #1F3352;
+    --rule: #c9d1de;
+    --code-bg: #f4f6f9;
+    --code-border: #d8dee8;
+    --bg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e6e6e6;
+      --muted: #a2a2a2;
+      --navy: #9db4d8;
+      --rule: #33415c;
+      --code-bg: #161b22;
+      --code-border: #2a3340;
+      --bg: #0d1117;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    font-size: 17px;
+    line-height: 1.62;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 56px 28px 96px;
+  }
+  h1 {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: var(--navy);
+    margin: 0 0 10px;
+    line-height: 1.25;
+  }
+  .dek {
+    font-size: 0.92rem;
+    color: var(--muted);
+    font-style: italic;
+    margin: 0 0 6px;
+  }
+  .byline {
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  .byline a { color: var(--navy); }
+  h2 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--navy);
+    margin: 40px 0 10px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--rule);
+  }
+  h3 {
+    font-size: 1.02rem;
+    font-weight: 700;
+    margin: 24px 0 6px;
+  }
+  p { margin: 12px 0; }
+  ul, ol { margin: 12px 0; padding-left: 22px; }
+  li { margin-bottom: 8px; }
+  b, strong { color: var(--ink); font-weight: 700; }
+  a { color: var(--navy); }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    overflow-x: auto;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--navy);
+  }
+  footer {
+    margin-top: 56px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  @media (max-width: 600px) {
+    body { padding: 32px 18px 72px; font-size: 16px; }
+    h1 { font-size: 1.45rem; }
+  }
+</style>
+</head>
+<body>
+
+  <h1>Building Convexa: a compile-time architecture for B2B conversational agents</h1>
+  <p class="dek">A product teardown of the system I own at Nagent AI. Written to show how I make architecture and go-to-market decisions, not to sell the product. Customer names and anything under NDA are left out; the numbers here are ones I am cleared to share.</p>
+  <p class="byline">Hariharan V (Hari) &nbsp;|&nbsp; Senior Product Manager, Nagent AI &nbsp;|&nbsp; <a href="https://linkedin.com/in/vhharan1">linkedin.com/in/vhharan1</a></p>
+
+  <h2>The problem</h2>
+  <p>Convexa is a B2B conversational execution agent that sits on a company's website. It does not just answer questions - it qualifies a lead, writes the result back to the CRM, and hands off scheduling, inside one conversation.</p>
+  <p>When I took it over it was positioned as a "RAG knowledge chatbot": upload documents, get a bot that answers from them. That category is crowded, it is commoditising fast, and its buyers churn the moment a cheaper option ships. The two competitors we lost deals to both had a specific, repeated complaint in their public reviews: the bot confidently makes things up.</p>
+  <p>So I made two bets:</p>
+  <ol>
+    <li><b>Reposition from "answers questions" to "finishes a job."</b> Qualify, sync, hand off - a measurable outcome, not a transcript.</li>
+    <li><b>Make not-hallucinating the wedge.</b> Turn the thing customers complain about into the thing we are unambiguously best at.</li>
+  </ol>
+  <p>Everything below follows from those two bets.</p>
+
+  <h2>The core design: one compiled prompt per customer, assembled at deploy time</h2>
+  <p>A customer never writes a prompt. They answer functional questions in a one-screen onboarding flow ("what should the assistant do? capture leads? resolve issues? both?"). The backend turns those answers into a single system prompt by concatenating fixed blocks:</p>
+  <pre>FINAL SYSTEM PROMPT =
+    core guardrails            (identical for every customer, never edited)
+  + brand and tone             (merge fields from onboarding: name, voice, languages)
+  + admin's custom guardrails  (free text - validated against core before it is accepted)
+  + 1-3 intent modules         (from a fixed set of 8: inform, support, qualify,
+                                book, account, intake, feedback, promote)
+  + 0-N custom intent modules  (compiled on demand when the fixed 8 do not cover a goal)
+  + fallback policy            (per active job, a few admin toggles)
+  + engagement policy          (idle-visitor re-engagement)
+  + an intent router           (added only when 2+ intents are active)</pre>
+  <p>The prompt is recompiled every time an admin changes a setting, and each compiled version is stored, so a deployment is a specific, inspectable artifact rather than a text box someone edited live.</p>
+  <h3>Why modules instead of a per-customer prompt</h3>
+  <p>The obvious alternative - a prompt-engineer tunes a bespoke prompt per customer - does not scale and does not stay safe. Every hand-written prompt is a place a guardrail can be accidentally dropped, and every change is a regression risk nobody can see.</p>
+  <p>The tradeoff I accepted: a module system is less expressive than a free hand. A customer with a genuinely unusual job has to either fit one of the eight intents or get a custom module compiled (which is validated the same way). In practice a real deployment uses one to three intents, so the ceiling has not bitten yet. What I bought for that constraint: a new customer goes live in about <b>10 minutes</b>, and no customer can ship a prompt that violates a core rule.</p>
+
+  <h2>Decision: a three-level guardrail precedence, with validation before anything goes live</h2>
+  <p>Rules resolve in a fixed order:</p>
+  <pre>Core Guardrails  &gt;  Admin's Custom Guardrails  &gt;  Intent Module defaults</pre>
+  <p>Core guardrails are prepended verbatim to every deployment and cover identity and prompt-injection resistance, grounding, scope, safety and escalation, always-available human handoff, and a "never go silent" rule. An admin's own guardrails can <b>restrict</b> further - never loosen. That is not a convention we hope holds; every custom guardrail an admin writes is checked against the core set before it is accepted, and a custom intent module is checked the same way because it is also admin-authored free text heading into a live prompt.</p>
+  <p>Why this mattered enough to build: the demo that wins B2B deals is "type your own rule and watch it take effect." The demo that loses the renewal is the one where a customer's well-meaning rule quietly disabled the safety layer. Validation-before-live lets us keep the first demo without the second outcome.</p>
+
+  <h2>Decision: strict grounding as the wedge, with a hard rule against dead ends</h2>
+  <p>The agent answers only from the connected knowledge base, the current conversation, and explicitly connected tools. If the answer is not in one of those, it says so - it does not guess prices, dates, stock levels, or policy. The dashboard can show a "Grounded" tag on answers that are backed by real content, and the phrasing of "I don't have that" is varied so it does not read like a canned line.</p>
+  <p>The part I care most about: a bare "I don't know" is treated as a <b>failure</b>, not a safe default. The proactivity rule in the core guardrails forces every decline to name a next step in the same breath - an alternative source, a handoff, or a clarifying question. There is one deliberate exception (a "log my issue and leave me alone" intake mode), which is a named, scoped choice rather than a hole in the rule.</p>
+  <p>This is the difference between "safe but useless" and "safe and still moving the conversation forward," and it is why I think of grounding as a growth feature, not a compliance feature.</p>
+
+  <h2>Decision: an eval suite that gates every prompt release</h2>
+  <p>Because the prompt is assembled from shared modules, a change to one module can regress every customer that uses it. So no prompt change ships without passing a golden-dataset evaluation: a fixed set of representative conversations, each with an expected behaviour (answer from a document, say "I don't know," call the CRM tool, refuse, escalate), scored by a mix of deterministic checks and an LLM-as-judge rubric. Regression against the previous version blocks the release. A separate adversarial set - prompt-injection attempts, jailbreaks, out-of-scope asks - has to pass clean.</p>
+  <p>This is the least glamorous part of the system and the one that lets me change a shared module without holding my breath.</p>
+
+  <h2>Decision: onboarding is functional questions, not prompt writing</h2>
+  <p>The version I inherited had an eight-step configuration wizard. Most people did not finish it. I cut it to a single intent-capture screen - the admin picks what the assistant should do, and reaches a clear picture of the assistant's scope in under four clicks. Everything the old wizard asked is still asked, later, in context, with a working assistant already in front of the user to react to. I benchmarked 16 competitor onboarding flows before settling on this; the ones that converted best all deferred configuration until after first value.</p>
+
+  <h2>Decision: price on the outcome, and only gate the outcome</h2>
+  <p>Pricing is three self-serve tiers plus a custom Enterprise tier, billed <b>per conversation, not per seat</b> - unlimited teammates share one workspace. A $1 trial gives the full entry plan for 14 days.</p>
+  <p>Two calls I had to defend:</p>
+  <ul>
+    <li><b>Per conversation, not per seat.</b> Seat pricing punishes the customer for adding teammates, which is the opposite of what you want for a support tool. Per-conversation pricing tracks the value delivered and makes the metered-billing quota the same number the customer already cares about.</li>
+    <li><b>Gate deploy, not the product.</b> Engineering proposed 403-gating every page and API for an unpaid workspace. I scoped the paywall to a single action: pushing the assistant live on the real site. An unpaid or lapsed workspace can build, test, and simulate the entire assistant - they just cannot deploy it until they pay. Prospects reach the value before they hit the wall, which is the whole point of a product-led motion.</li>
+  </ul>
+
+  <h2>Integration model</h2>
+  <p>CRM sync is bi-directional and runs through Composio rather than a hand-rolled integration: routing rules, a deal-versus-ticket split, and sentiment and lead-quality scoring written back to the CRM, plus a per-conversation quota that feeds metered billing. The agent also spans modalities - text, image, voice, and video - across model providers, so the same conversation can, for example, take a spoken question and return a generated image.</p>
+  <p>Deliberately <b>not</b> live yet, and named as roadmap rather than implied: voice conversations, calendar booking, live human takeover as a staffed queue, a governed-autonomy (L0-L4) selector, CRMs beyond the first, and channels beyond the website widget. Saying so plainly is part of the grounding pitch - the product should not over-claim any more than the agent should.</p>
+
+  <h2>Results so far</h2>
+  <p>Early production, first paying enterprise customer, a deal I ran end to end from proof-of-concept through security review:</p>
+  <ul>
+    <li><b>~1.2s median response time</b></li>
+    <li><b>~10 minutes</b> from onboarding to a live, deployed assistant</li>
+    <li><b>500+ conversations handled</b>, with <b>under 10% unanswered</b> (where "unanswered" means the agent explicitly could not help and escalated, not a wrong answer)</li>
+  </ul>
+  <p>The sample is early and the unanswered rate will move as query diversity grows; I would rather report a real number on a small base than a projected one.</p>
+
+  <h2>What I would do next</h2>
+  <ol>
+    <li><b>Close the loop on unanswered conversations</b> - route every "I don't know" into a weekly knowledge-base gap report, so the number that matters most has an owner and a workflow, not just a dashboard tile.</li>
+    <li><b>Ship the autonomy selector.</b> Right now the agent's boldness is fixed per job; customers in regulated spaces want a dial, and an approvals queue behind it.</li>
+    <li><b>A second CRM.</b> The Composio layer makes this mostly a config and eval problem rather than an integration rewrite, which was part of why I chose it.</li>
+  </ol>
+
+  <h2>What I owned</h2>
+  <p>Repositioning and the platform's system-prompt architecture; the guardrail precedence and validation model; the eval suite; onboarding; pricing, packaging, and the product-led growth motion; the go-to-market source of truth (competitor matrix, ICP, positioning, launch plan); and the CRM integration spec. Team: cross-functional, engineering and design, at a pre-Series-A company.</p>
+
+  <footer>
+    Hariharan V (Hari) &middot; <a href="https://linkedin.com/in/vhharan1">linkedin.com/in/vhharan1</a>
+  </footer>
+
+</body>
+</html>
