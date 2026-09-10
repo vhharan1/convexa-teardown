@@ -1,2 +1,2 @@
 # convexa-teardown
-Product teardown: architecture and go-to-market for a B2B conversational agent.
+Product teardown: architecture and go-to-market for a conversational agent (B2B and B2C).
