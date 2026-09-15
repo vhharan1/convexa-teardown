@@ -271,10 +271,19 @@
   <p>CRM sync is bi-directional and runs through Composio rather than a hand-rolled integration: routing rules, a deal-versus-ticket split, and sentiment and lead-quality scoring written back to the CRM, plus a per-conversation quota that feeds metered billing. The agent also spans modalities - text, image, voice, and video - across model providers, so the same conversation can, for example, take a spoken question and return a generated image.</p>
   <p>Deliberately <b>not</b> live yet, and named as roadmap rather than implied: voice conversations, calendar booking, live human takeover as a staffed queue, a governed-autonomy (L0-L4) selector, CRMs beyond the first, and channels beyond the website widget. Saying so plainly is part of the grounding pitch - the product should not over-claim any more than the agent should.</p>
 
+  <h2>Decision: treat latency as a product feature, not an infra afterthought</h2>
+  <p>For a chat-shaped product, the gap between a message and a reply is felt the same way a person going quiet mid-conversation is felt. Early on that gap was <b>4.7 seconds</b> median - technically correct answers, slow enough to feel broken. Four changes got it to <b>1.2 seconds</b>, and none of them traded quality for speed:</p>
+  <ul>
+    <li>Migrated the knowledge base from plain <b>PDF/TXT to JSONL with metadata tags</b> - the structure that lets the hybrid BM25 + semantic retrieval filter precisely instead of scanning loosely-structured text. This improved answer quality at the same time it improved speed; the two are usually framed as a tradeoff, and here they were not.</li>
+    <li><b>Bounded conversation context to the last 5 turns</b> instead of replaying the full transcript on every message. Older context that still matters lives in the knowledge base, not in raw chat history.</li>
+    <li><b>Cached the compiled system prompt</b> - core guardrails, brand and tone, intent modules - so it is built once per deployment and reused, not reprocessed on every single message. This is also the one change that cut cost, not just time.</li>
+    <li>Switched to <b>streaming responses</b>, so what a visitor actually waits on is time-to-first-token, not time-to-full-answer.</li>
+  </ul>
+
   <h2>Results so far</h2>
   <p>Early production, first paying enterprise customer, a deal I ran end to end from proof-of-concept through security review:</p>
   <ul>
-    <li><b>~1.2s median response time</b></li>
+    <li><b>~1.2s median response time</b> (down from ~4.7s)</li>
     <li><b>~10 minutes</b> from onboarding to a live, deployed assistant</li>
     <li><b>500+ conversations handled</b>, with <b>under 10% unanswered</b> (where "unanswered" means the agent explicitly could not help and escalated, not a wrong answer)</li>
   </ul>
@@ -288,7 +297,7 @@
   </ol>
 
   <h2>What I owned</h2>
-  <p>Repositioning and the platform's system-prompt architecture; the guardrail precedence and validation model; the eval suite; onboarding; pricing, packaging, and the product-led growth motion; the go-to-market source of truth (competitor matrix, ICP, positioning, launch plan); and the CRM integration spec. Team: cross-functional, engineering and design, at a pre-Series-A company.</p>
+  <p>Repositioning and the platform's system-prompt architecture; the guardrail precedence and validation model; the eval suite; onboarding; the latency and cost work (knowledge-base migration, context bounding, prompt caching, streaming); pricing, packaging, and the product-led growth motion; the go-to-market source of truth (competitor matrix, ICP, positioning, launch plan); and the CRM integration spec. Team: cross-functional, engineering and design, at a pre-Series-A company.</p>
 
   <footer>
     Hariharan V (Hari) &middot; <a href="https://linkedin.com/in/vhharan1">linkedin.com/in/vhharan1</a>
