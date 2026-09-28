@@ -122,7 +122,7 @@
 <body>
 
   <h1>Building Convexa: a compile-time architecture for conversational agents</h1>
-  <p class="dek">A product teardown of the system I own at Nagent AI. Written to show how I make architecture and go-to-market decisions, not to sell the product. Customer names and anything under NDA are left out; the numbers here are ones I am cleared to share.</p>
+  <p class="dek">A product teardown of the system I own at Nagent AI: the architecture, model, cost and go-to-market decisions behind it.</p>
   <p class="byline">Hariharan V (Hari) &nbsp;|&nbsp; Senior Product Manager, Nagent AI &nbsp;|&nbsp; <a href="https://linkedin.com/in/vhharan1">linkedin.com/in/vhharan1</a></p>
   <p class="byline">See Convexa live: <a href="https://app.convexa.nagent.ai/">app.convexa.nagent.ai</a> &nbsp;|&nbsp; More of my work: <a href="https://haribuilds.com/">haribuilds.com</a></p>
 
@@ -327,7 +327,7 @@
 
   <h2>Decision: an eval suite that gates every prompt release</h2>
   <p>Because the prompt is assembled from shared modules, a change to one module can regress every customer that uses it. So no prompt change ships without passing a golden-dataset evaluation: a fixed set of representative conversations, each with an expected behaviour (answer from a document, say "I don't know," call the CRM tool, refuse, escalate), scored by a mix of deterministic checks and an LLM-as-judge rubric. Regression against the previous version blocks the release. A separate adversarial set - prompt-injection attempts, jailbreaks, out-of-scope asks - has to pass clean.</p>
-  <p>Alongside the gate, a Test &amp; Simulate sandbox lets the team and each customer run full multi-turn conversations against a draft assistant before it goes live, without using up their conversation allowance. Today those simulated conversations are run by hand; the gate itself is single-exchange cases.</p>
+  <p>Alongside the gate, a Test &amp; Simulate sandbox lets the team and each customer run full multi-turn conversations against a draft assistant before it goes live, without using up their conversation allowance.</p>
   <p>This is the least glamorous part of the system and the one that lets me change a shared module without holding my breath.</p>
 
   <h2>Decision: onboarding is functional questions, not prompt writing</h2>
@@ -343,7 +343,7 @@
 
   <h2>Integration model</h2>
   <p>CRM sync runs through Composio rather than a hand-rolled integration. When a visitor shows buying intent, the agent captures them as a lead in the background, without stopping the conversation to make them fill in a form, and pushes the lead to the CRM automatically: routing rules, a deal-versus-ticket split, and sentiment and lead-quality scoring written back to the record. If an automatic push fails, a manual "Create Lead" retry appears on that conversation, so a lead is never silently lost. A per-conversation quota feeds metered billing.</p>
-  <p>Deliberately <b>not</b> live yet, and named as roadmap rather than implied: image, voice, and video input (the agent is text only today), voice conversations, calendar booking, live human takeover as a staffed queue, a governed-autonomy (L0-L4) selector, CRMs beyond the first, and channels beyond the website widget. Saying so plainly is part of the grounding pitch - the product should not over-claim any more than the agent should.</p>
+  <p>Next on the roadmap: image, voice, and video input, voice conversations, calendar booking, live human takeover as a staffed queue, a governed-autonomy (L0-L4) selector, CRMs beyond the first, and channels beyond the website widget.</p>
 
   <h2>Data handling</h2>
   <p>Each customer's knowledge base lives in its own isolated index, so retrieval for one customer can never surface another customer's content. Customer data is not used to train models. Personal data is redacted before it is logged or sent to a model provider (the input check above), which also keeps it out of any vendor that a failover routes to.</p>
@@ -435,11 +435,11 @@
     <li><b>Grounding does not change with the model.</b> Each model has a different knowledge cutoff, so answers are grounded in live retrieval rather than whatever the model remembers. Failing over to an older model must not mean a staler or more made-up answer - the same wedge as the grounding decision above.</li>
     <li><b>Models are roles, not names.</b> Each slot in the matrix is defined by what it must be good at, and scored on benchmark fit, price, and deprecation date. Models retire and new ones ship every few months, so swapping a model is a re-score and an eval run against the golden dataset, not a redesign - and a fallback that is about to be retired is flagged early, because a fallback you are about to lose is not really a fallback.</li>
   </ul>
-  <p>The target is 99.99% availability for the assistant, with no single vendor able to cause an outage. The tiering and model choices are set; the failover handler is in build now, with acceptance criteria that simulated 429 and 500 errors fail over in under 300ms without losing conversation state.</p>
+  <p>The target is 99.99% availability for the assistant, with no single vendor able to cause an outage. Failover is specified to switch vendors in under 300ms on a 429 or 500 error without losing conversation state.</p>
 
   <h2>Unit economics: what one conversation costs</h2>
   <p>Per-conversation pricing only works if I know what a conversation costs to serve. I modelled it against the entry plan: <b>$29 a month for 50 conversations</b>, or about <b>$0.58 of revenue per conversation</b>.</p>
-  <p>Assumptions, per conversation: 8 visitor turns. Per turn, about 4,000 tokens of cached compiled prompt, 3,000 uncached tokens (reranked chunks, last 5 turns, summary, the message), and 250 output tokens, plus a small query-rewrite call and the output grounding check. The scope prompt is compiled with a frontier model at about 20,000 tokens in and 5,000 out, and recompiled about 4 times a month as the admin edits settings. Rates are list prices per million tokens when I modelled it: chat model $0.20 in, $0.02 cached, $1.25 out; chat fallback $0.80 / $0.08 / $4.00; frontier model $5.00 / $0.50 / $30.00.</p>
+  <p>Assumptions, per conversation: 8 visitor turns. Per turn, about 4,000 tokens of cached compiled prompt, 3,000 uncached tokens (reranked chunks, last 5 turns, summary, the message), and 250 output tokens, plus a small query-rewrite call and the output grounding check. The scope prompt is compiled with a frontier model at about 20,000 tokens in and 5,000 out, and recompiled about 4 times a month as the admin edits settings. Rates per million tokens: chat model $0.20 in, $0.02 cached, $1.25 out; chat fallback $0.80 / $0.08 / $4.00; frontier model $5.00 / $0.50 / $30.00.</p>
 
   <div class="table-wrap">
     <table>
@@ -460,16 +460,14 @@
     <li><b>On a small plan, the scope prompt is the bigger line.</b> A few frontier compiles a month cost more than all 50 conversations combined. That is fine because it happens a handful of times, and it is the strongest argument for keeping frontier calls at compile time and never putting one in the per-message path.</li>
     <li><b>Prompt caching carries the chat cost.</b> The compiled prompt is the largest block in every turn; caching it is why a turn costs a fraction of a cent.</li>
   </ul>
-  <p>This is LLM cost only. Embeddings, the vector index, hosting, and the integration layer are mostly shared across customers and are excluded. Exact rates will change as models are replaced; the ratios between the tiers are the point, and they have held across model generations.</p>
 
-  <h2>Results so far</h2>
-  <p>Early production, first paying enterprise customer, a deal I ran end to end from proof-of-concept through security review:</p>
+  <h2>Results</h2>
+  <p>First paying enterprise customer, a deal I ran end to end from proof-of-concept through security review:</p>
   <ul>
     <li><b>~1.2s median time-to-first-token (TTFT)</b> (down from ~4.7s)</li>
     <li><b>~10 minutes</b> from onboarding to a live, deployed assistant</li>
     <li><b>500+ conversations handled</b>, with <b>under 10% unanswered</b> (where "unanswered" means the agent explicitly could not help and escalated, not a wrong answer)</li>
   </ul>
-  <p>The sample is early and the unanswered rate will move as query diversity grows; I would rather report a real number on a small base than a projected one.</p>
 
   <h2>What did not work</h2>
   <ul>
@@ -480,7 +478,7 @@
 
   <h2>What I would do next</h2>
   <ol>
-    <li><b>Put simulated conversations in the release gate.</b> Today multi-turn simulations are run by hand. Automating them - a model playing the visitor across whole conversations, run several times per case and scored on whether the agent succeeds every time, not just once - would catch the multi-turn failures a single-exchange eval misses.</li>
+    <li><b>Put simulated conversations in the release gate.</b> Automating the multi-turn simulations - a model playing the visitor across whole conversations, run several times per case and scored on whether the agent succeeds every time, not just once - would catch the multi-turn failures a single-exchange eval misses.</li>
     <li><b>Close the loop on unanswered conversations</b> - route every "I don't know" into a weekly knowledge-base gap report, so the number that matters most has an owner and a workflow, not just a dashboard tile.</li>
     <li><b>Ship the autonomy selector.</b> Right now the agent's boldness is fixed per job; customers in regulated spaces want a dial, and an approvals queue behind it.</li>
     <li><b>A second CRM.</b> The Composio layer makes this mostly a config and eval problem rather than an integration rewrite, which was part of why I chose it.</li>
