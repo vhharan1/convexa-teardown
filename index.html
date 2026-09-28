@@ -4,6 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Building Convexa - a product teardown by Hari</title>
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://vhharan1.github.io/convexa-teardown/">
+<meta property="og:title" content="Building Convexa: a compile-time architecture for conversational agents">
+<meta property="og:description" content="How I set the architecture and go-to-market for a B2B conversational agent at Nagent AI: compiled per-customer prompts, guardrail precedence, strict grounding, an eval release gate, and per-conversation pricing.">
+<meta property="og:image" content="https://vhharan1.github.io/convexa-teardown/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Building Convexa, a product teardown by Hari: 4.7s to 1.2s time to first token, about 10 minutes to a live assistant, 500+ conversations.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://vhharan1.github.io/convexa-teardown/og.jpg">
+<meta name="author" content="Hariharan V (Hari)">
 <meta name="description" content="How I set the architecture and go-to-market for a B2B conversational agent at Nagent AI: compiled per-customer prompts, guardrail precedence, strict grounding, an eval release gate, and per-conversation pricing.">
 <style>
   :root {
@@ -108,6 +119,7 @@
   <h1>Building Convexa: a compile-time architecture for conversational agents</h1>
   <p class="dek">A product teardown of the system I own at Nagent AI. Written to show how I make architecture and go-to-market decisions, not to sell the product. Customer names and anything under NDA are left out; the numbers here are ones I am cleared to share.</p>
   <p class="byline">Hariharan V (Hari) &nbsp;|&nbsp; Senior Product Manager, Nagent AI &nbsp;|&nbsp; <a href="https://linkedin.com/in/vhharan1">linkedin.com/in/vhharan1</a></p>
+  <p class="byline">See Convexa live: <a href="https://app.convexa.nagent.ai/">app.convexa.nagent.ai</a> &nbsp;|&nbsp; More of my work: <a href="https://haribuilds.com/">haribuilds.com</a></p>
 
   <h2>The problem</h2>
   <p>Convexa is a conversational execution agent - an AI chat agent, in the term most people use - that a company embeds on its website to talk to its visitors, whether it sells to consumers or to other businesses. It does not just answer questions: it qualifies a lead, writes the result back to the CRM, and hands off scheduling, inside one conversation.</p>
@@ -300,7 +312,7 @@
   <p>Repositioning and the platform's system-prompt architecture; the guardrail precedence and validation model; the eval suite; onboarding; the latency and cost work (knowledge-base migration, context bounding, prompt caching, streaming); pricing, packaging, and the product-led growth motion; the go-to-market source of truth (competitor matrix, ICP, positioning, launch plan); and the CRM integration spec. Team: cross-functional, engineering and design, at a pre-Series-A company.</p>
 
   <footer>
-    Hariharan V (Hari) &middot; <a href="https://linkedin.com/in/vhharan1">linkedin.com/in/vhharan1</a>
+    Hariharan V (Hari) &middot; <a href="https://linkedin.com/in/vhharan1">linkedin.com/in/vhharan1</a> &middot; <a href="https://haribuilds.com/">haribuilds.com</a> &middot; <a href="https://app.convexa.nagent.ai/">Convexa live</a>
   </footer>
 
 </body>
