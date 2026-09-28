@@ -101,6 +101,11 @@
   figure { margin: 26px 0; }
   figure svg { width: 100%; height: auto; display: block; max-width: 560px; margin: 0 auto; }
   figcaption { font-size: 0.8rem; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+  .table-wrap { overflow-x: auto; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.82rem; line-height: 1.45; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+  th { color: var(--navy); font-weight: 700; border-bottom: 1.5px solid var(--navy); white-space: nowrap; }
+  td:first-child { font-weight: 700; white-space: nowrap; }
   footer {
     margin-top: 56px;
     padding-top: 16px;
@@ -203,6 +208,61 @@
   <p>The obvious alternative - a prompt-engineer tunes a bespoke prompt per customer - does not scale and does not stay safe. Every hand-written prompt is a place a guardrail can be accidentally dropped, and every change is a regression risk nobody can see.</p>
   <p>The tradeoff I accepted: a module system is less expressive than a free hand. A customer with a genuinely unusual job has to either fit one of the eight intents or get a custom module compiled (which is validated the same way). In practice a real deployment uses one to three intents, so the ceiling has not bitten yet. What I bought for that constraint: a new customer goes live in about <b>10 minutes</b>, and no customer can ship a prompt that violates a core rule.</p>
 
+  <h2>Runtime: what happens to one visitor message</h2>
+  <p>The compiled prompt is the deploy-time half of the system. This is the per-message half - seven steps between a visitor hitting send and the first word appearing. The prompt tells the model what it should do; the code steps around it make sure that is actually what happens.</p>
+
+  <figure>
+    <svg viewBox="0 0 600 384" role="img" aria-label="Diagram: a visitor message passes input checks, query rewrite, hybrid retrieval, rerank, generation with the cached compiled prompt, an output grounding check, and is then streamed back with any tool calls.">
+      <style>
+        .d4 text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .d4 .box { fill: var(--code-bg); stroke: var(--navy); stroke-width: 1.5; }
+        .d4 .bar { fill: var(--navy); }
+        .d4 .bar-t { fill: var(--bg); font-weight: 700; font-size: 12.5px; }
+        .d4 .bar-n { fill: var(--bg); font-weight: 400; font-size: 11px; }
+        .d4 .val-b { fill: var(--ink); font-weight: 700; font-size: 12.5px; }
+        .d4 .lbl { fill: var(--muted); font-weight: 400; font-size: 11px; }
+        .d4 .arw { stroke: var(--navy); stroke-width: 1.5; fill: none; stroke-linecap: round; }
+      </style>
+      <defs>
+        <marker id="d4arrow" markerWidth="9" markerHeight="9" refX="4.5" refY="7" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M1,1 L4.5,7 L8,1 Z" fill="var(--navy)"/>
+        </marker>
+      </defs>
+      <g class="d4">
+        <rect class="box" x="40" y="10" width="520" height="40" rx="6"/>
+        <text x="56" y="35" class="val-b">Input checks<tspan class="lbl">   prompt-injection filter  ·  PII redaction</tspan></text>
+        <line class="arw" x1="300" y1="50" x2="300" y2="62" marker-end="url(#d4arrow)"/>
+        <rect class="box" x="40" y="64" width="520" height="40" rx="6"/>
+        <text x="56" y="89" class="val-b">Query rewrite<tspan class="lbl">   message + recent turns become one standalone search query</tspan></text>
+        <line class="arw" x1="300" y1="104" x2="300" y2="116" marker-end="url(#d4arrow)"/>
+        <rect class="box" x="40" y="118" width="520" height="40" rx="6"/>
+        <text x="56" y="143" class="val-b">Hybrid retrieval<tspan class="lbl">   BM25 + semantic, only inside this customer's own index</tspan></text>
+        <line class="arw" x1="300" y1="158" x2="300" y2="170" marker-end="url(#d4arrow)"/>
+        <rect class="box" x="40" y="172" width="520" height="40" rx="6"/>
+        <text x="56" y="197" class="val-b">Rerank<tspan class="lbl">   keep the few chunks that actually answer the question</tspan></text>
+        <line class="arw" x1="300" y1="212" x2="300" y2="224" marker-end="url(#d4arrow)"/>
+        <rect class="bar" x="40" y="226" width="520" height="40" rx="6"/>
+        <text x="56" y="251" class="bar-t">Generate<tspan class="bar-n">   cached compiled prompt + last 5 turns + summary + visitor profile</tspan></text>
+        <line class="arw" x1="300" y1="266" x2="300" y2="278" marker-end="url(#d4arrow)"/>
+        <rect class="box" x="40" y="280" width="520" height="40" rx="6"/>
+        <text x="56" y="305" class="val-b">Output grounding check<tspan class="lbl">   every claim checked against the retrieved chunks</tspan></text>
+        <line class="arw" x1="300" y1="320" x2="300" y2="332" marker-end="url(#d4arrow)"/>
+        <rect class="box" x="40" y="334" width="520" height="40" rx="6"/>
+        <text x="56" y="359" class="val-b">Stream reply  ·  call tools<tspan class="lbl">   first token streamed  ·  CRM push via Composio</tspan></text>
+      </g>
+    </svg>
+    <figcaption>One message, end to end. Steps 1 and 6 are code checks, not prompt instructions, so they hold even if a clever message talks the model out of its rules.</figcaption>
+  </figure>
+
+  <ul>
+    <li><b>Input checks.</b> Every message is screened for prompt injection before it reaches the model, and personal data is redacted before it is logged or sent to a model provider. The core guardrails also tell the model to resist injection; the filter means that is not the only line of defence.</li>
+    <li><b>Query rewrite.</b> Visitors write "and how much is that one?", which is useless as a search query. A rewrite step turns the message plus recent turns into a standalone query before retrieval.</li>
+    <li><b>Hybrid retrieval, then rerank.</b> Keyword (BM25) search catches exact product names, SKUs, and policy terms; semantic search catches paraphrases. Both run over a vector index (Pinecone) scoped to that one customer, and a reranker keeps only the few chunks that genuinely answer the question, so the model reads less and guesses less.</li>
+    <li><b>Generate.</b> The chat-tier model gets the cached compiled prompt, the reranked chunks, the last 5 turns verbatim, a running summary of anything older, and a stored profile for returning visitors - which is how a returning visitor gets greeted by name without replaying their old transcript.</li>
+    <li><b>Output grounding check.</b> Before a reply is sent, its claims are checked against the chunks that were retrieved. An answer that is not supported does not go out; the agent falls back to the decline-with-a-next-step rule below instead.</li>
+    <li><b>Stream and act.</b> The reply streams token by token, and any action - such as pushing a captured lead to the CRM - runs through connected tools.</li>
+  </ul>
+
   <h2>Decision: a three-level guardrail precedence, with validation before anything goes live</h2>
   <p>Rules resolve in a fixed order:</p>
   <pre>Core Guardrails  &gt;  Admin's Custom Guardrails  &gt;  Intent Module defaults</pre>
@@ -262,10 +322,12 @@
   <h2>Decision: strict grounding as the wedge, with a hard rule against dead ends</h2>
   <p>The agent answers only from the connected knowledge base, the current conversation, and explicitly connected tools. If the answer is not in one of those, it says so - it does not guess prices, dates, stock levels, or policy. The dashboard can show a "Grounded" tag on answers that are backed by real content, and the phrasing of "I don't have that" is varied so it does not read like a canned line.</p>
   <p>The part I care most about: a bare "I don't know" is treated as a <b>failure</b>, not a safe default. The proactivity rule in the core guardrails forces every decline to name a next step in the same breath - an alternative source, a handoff, or a clarifying question. There is one deliberate exception (a "log my issue and leave me alone" intake mode), which is a named, scoped choice rather than a hole in the rule.</p>
+  <p>The fallback order when the knowledge base comes up empty is explicit: say so plainly, then - only if the business has switched it on - check a short allowlist of trusted outside sites (a retailer's shipping carriers, for example), then hand over a real contact. The one job that skips the outside search is issue resolution: when the agent is trying to fix a customer's actual problem, a guessed fix is worse than no fix, so it escalates to a human straight away.</p>
   <p>This is the difference between "safe but useless" and "safe and still moving the conversation forward," and it is why I think of grounding as a growth feature, not a compliance feature.</p>
 
   <h2>Decision: an eval suite that gates every prompt release</h2>
   <p>Because the prompt is assembled from shared modules, a change to one module can regress every customer that uses it. So no prompt change ships without passing a golden-dataset evaluation: a fixed set of representative conversations, each with an expected behaviour (answer from a document, say "I don't know," call the CRM tool, refuse, escalate), scored by a mix of deterministic checks and an LLM-as-judge rubric. Regression against the previous version blocks the release. A separate adversarial set - prompt-injection attempts, jailbreaks, out-of-scope asks - has to pass clean.</p>
+  <p>Alongside the gate, a Test &amp; Simulate sandbox lets the team and each customer run full multi-turn conversations against a draft assistant before it goes live, without using up their conversation allowance. Today those simulated conversations are run by hand; the gate itself is single-exchange cases.</p>
   <p>This is the least glamorous part of the system and the one that lets me change a shared module without holding my breath.</p>
 
   <h2>Decision: onboarding is functional questions, not prompt writing</h2>
@@ -280,17 +342,125 @@
   </ul>
 
   <h2>Integration model</h2>
-  <p>CRM sync is bi-directional and runs through Composio rather than a hand-rolled integration: routing rules, a deal-versus-ticket split, and sentiment and lead-quality scoring written back to the CRM, plus a per-conversation quota that feeds metered billing. The agent also spans modalities - text, image, voice, and video - across model providers, so the same conversation can, for example, take a spoken question and return a generated image.</p>
-  <p>Deliberately <b>not</b> live yet, and named as roadmap rather than implied: voice conversations, calendar booking, live human takeover as a staffed queue, a governed-autonomy (L0-L4) selector, CRMs beyond the first, and channels beyond the website widget. Saying so plainly is part of the grounding pitch - the product should not over-claim any more than the agent should.</p>
+  <p>CRM sync runs through Composio rather than a hand-rolled integration. When a visitor shows buying intent, the agent captures them as a lead in the background, without stopping the conversation to make them fill in a form, and pushes the lead to the CRM automatically: routing rules, a deal-versus-ticket split, and sentiment and lead-quality scoring written back to the record. If an automatic push fails, a manual "Create Lead" retry appears on that conversation, so a lead is never silently lost. A per-conversation quota feeds metered billing.</p>
+  <p>Deliberately <b>not</b> live yet, and named as roadmap rather than implied: image, voice, and video input (the agent is text only today), voice conversations, calendar booking, live human takeover as a staffed queue, a governed-autonomy (L0-L4) selector, CRMs beyond the first, and channels beyond the website widget. Saying so plainly is part of the grounding pitch - the product should not over-claim any more than the agent should.</p>
+
+  <h2>Data handling</h2>
+  <p>Each customer's knowledge base lives in its own isolated index, so retrieval for one customer can never surface another customer's content. Customer data is not used to train models. Personal data is redacted before it is logged or sent to a model provider (the input check above), which also keeps it out of any vendor that a failover routes to.</p>
 
   <h2>Decision: treat latency as a product feature, not an infra afterthought</h2>
   <p>For a chat-shaped product, the gap between a message and a reply is felt the same way a person going quiet mid-conversation is felt. The metric that matters here is <b>time-to-first-token (TTFT)</b> - how long before the visitor sees anything happen, not how long the full answer takes to finish generating. Early on that gap was <b>4.7 seconds</b> median - technically correct answers, slow enough to feel broken. Four changes got it to <b>1.2 seconds</b>, and none of them traded quality for speed:</p>
   <ul>
     <li>Migrated the knowledge base from plain <b>PDF/TXT to JSONL with metadata tags</b> - the structure that lets the hybrid BM25 + semantic retrieval filter precisely instead of scanning loosely-structured text. This improved answer quality at the same time it improved speed; the two are usually framed as a tradeoff, and here they were not.</li>
-    <li><b>Bounded conversation context to the last 5 turns</b> instead of replaying the full transcript on every message. Older context that still matters lives in the knowledge base, not in raw chat history.</li>
+    <li><b>Bounded conversation context to the last 5 turns</b> instead of replaying the full transcript on every message. Anything older is folded into a running summary, and what matters about a returning visitor lives in their stored profile, not in raw chat history.</li>
     <li><b>Cached the compiled system prompt</b> - core guardrails, brand and tone, intent modules - so it is built once per deployment and reused, not reprocessed on every single message. This is also the one change that cut cost, not just time.</li>
     <li>Switched to <b>streaming responses</b> - the reason TTFT, not full-answer completion time, is what a visitor actually feels.</li>
   </ul>
+
+  <h2>Decision: match the model to the job, and never depend on one vendor</h2>
+  <p>Convexa makes two very different kinds of LLM call, and treating them as one workload would have meant overpaying on one or underperforming on the other.</p>
+  <ul>
+    <li><b>Tier 1, scope prompt generation.</b> Turning a customer's onboarding answers into their scope prompt. It runs rarely, but everything downstream inherits its quality: it needs deep reasoning, strict instruction adherence, enforcement of negative constraints ("never allow X unless Y"), and clean structured JSON output.</li>
+    <li><b>Tier 2, live chat.</b> Every visitor message. It runs constantly, so it has to be fast to first token, cheap per turn, warm in tone, and good at holding multi-turn context and calling tools.</li>
+  </ul>
+  <p>So I made two separate calls. <b>Different LLMs for the two prompts</b> - the strongest reasoning model for the scope prompt, where quality compounds, and a small, fast model for chat, where volume does. That split is where the cost saving comes from. And <b>fallbacks for performance</b> - each tier gets two fallback models from different vendors, so a rate limit, outage, or slow response at one provider never degrades or takes down the assistant.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Tier</th><th>Primary (OpenAI)</th><th>Fallback 1 (Anthropic)</th><th>Fallback 2 (Google Vertex AI)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1 - Scope prompt</td><td>Frontier reasoning model<br><span style="color:var(--muted)">benchmark for instruction following and requirement parsing</span></td><td>Frontier reasoning model<br><span style="color:var(--muted)">strongest on negative constraints and structured prompt templates</span></td><td>Frontier long-context model<br><span style="color:var(--muted)">1M-token context for long PRDs and docs without dropping rules</span></td></tr>
+        <tr><td>2 - Live chat</td><td>Small, fast model<br><span style="color:var(--muted)">high-volume, low-cost streaming</span></td><td>Small, fast model<br><span style="color:var(--muted)">warm, natural tone, so failover does not sound robotic</span></td><td>Small, fast model<br><span style="color:var(--muted)">low-latency tool calling and long chat histories</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><b>Cost comes from the split between the two prompts.</b> The chat models cost more than an order of magnitude less per token than the frontier models, and chat is where almost all the tokens are - so the expensive model only runs on the one job that needs it, and the high-volume job runs on the cheap one.</p>
+  <p><b>Performance comes from the fallbacks.</b> They are not there to save money; they are there so the assistant keeps performing when the primary cannot. Each one is chosen to hold up on what its tier needs most - reasoning and rule-following for the scope prompt, speed, tone, and tool calling for chat - so a failover keeps the quality bar instead of just keeping the lights on.</p>
+
+  <figure>
+    <svg viewBox="0 0 600 250" role="img" aria-label="Diagram: on a rate limit, server error or slow first token, the primary model is retried once after 200 milliseconds, then the call fails over to Anthropic, then to Google Vertex AI, with conversation state carried across.">
+      <style>
+        .d3 text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .d3 .box { fill: var(--code-bg); stroke: var(--navy); stroke-width: 1.5; }
+        .d3 .bar { fill: var(--navy); }
+        .d3 .bar-t { fill: var(--bg); font-weight: 700; font-size: 12.5px; }
+        .d3 .val-b { fill: var(--ink); font-weight: 700; font-size: 12.5px; }
+        .d3 .note { fill: var(--muted); font-size: 11px; }
+        .d3 .gate { fill: none; stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 4 3; }
+        .d3 .arw { stroke: var(--navy); stroke-width: 1.5; fill: none; stroke-linecap: round; }
+      </style>
+      <defs>
+        <marker id="d3arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M1,1 L7,4.5 L1,8 Z" fill="var(--navy)"/>
+        </marker>
+      </defs>
+      <g class="d3">
+        <rect class="gate" x="40" y="14" width="520" height="34" rx="17"/>
+        <text x="300" y="35" text-anchor="middle" class="note">trigger:  HTTP 429 rate limit  ·  5xx server error  ·  first token slower than 3.5s</text>
+
+        <rect class="bar" x="20" y="80" width="160" height="62" rx="6"/>
+        <text x="100" y="106" text-anchor="middle" class="bar-t">Primary</text>
+        <text x="100" y="125" text-anchor="middle" class="bar-t" style="font-weight:400;font-size:11px">OpenAI</text>
+
+        <line class="arw" x1="182" y1="111" x2="218" y2="111" marker-end="url(#d3arrow)"/>
+
+        <rect class="box" x="220" y="80" width="160" height="62" rx="6"/>
+        <text x="300" y="106" text-anchor="middle" class="val-b">Fallback 1</text>
+        <text x="300" y="125" text-anchor="middle" class="note">Anthropic</text>
+
+        <line class="arw" x1="382" y1="111" x2="418" y2="111" marker-end="url(#d3arrow)"/>
+
+        <rect class="box" x="420" y="80" width="160" height="62" rx="6"/>
+        <text x="500" y="106" text-anchor="middle" class="val-b">Fallback 2</text>
+        <text x="500" y="125" text-anchor="middle" class="note">Google Vertex AI</text>
+
+        <text x="100" y="164" text-anchor="middle" class="note">retry once after 200ms</text>
+        <text x="300" y="164" text-anchor="middle" class="note">on second failure</text>
+        <text x="500" y="164" text-anchor="middle" class="note">on secondary failure</text>
+
+        <rect class="box" x="40" y="186" width="520" height="48" rx="6"/>
+        <text x="300" y="207" text-anchor="middle" class="val-b">Conversation state and session carried across every hop</text>
+        <text x="300" y="224" text-anchor="middle" class="note">exponential backoff + circuit breaker  ·  target: failover in under 300ms</text>
+      </g>
+    </svg>
+    <figcaption>The same chain runs for both tiers. A visitor mid-conversation should never notice which vendor answered, which is why tone and context retention were selection criteria for the chat fallbacks.</figcaption>
+  </figure>
+
+  <p>Three design rules sit around the chain:</p>
+  <ul>
+    <li><b>Cache-friendly prompt ordering on all three vendors.</b> Static content - core guardrails, scope rules - always comes before the visitor's message, so prompt caching hits on OpenAI, Anthropic, and Google alike (cached input is 90% cheaper on each, and faster). A fallback that misses the cache would be slower exactly when speed matters most.</li>
+    <li><b>Grounding does not change with the model.</b> Each model has a different knowledge cutoff, so answers are grounded in live retrieval rather than whatever the model remembers. Failing over to an older model must not mean a staler or more made-up answer - the same wedge as the grounding decision above.</li>
+    <li><b>Models are roles, not names.</b> Each slot in the matrix is defined by what it must be good at, and scored on benchmark fit, price, and deprecation date. Models retire and new ones ship every few months, so swapping a model is a re-score and an eval run against the golden dataset, not a redesign - and a fallback that is about to be retired is flagged early, because a fallback you are about to lose is not really a fallback.</li>
+  </ul>
+  <p>The target is 99.99% availability for the assistant, with no single vendor able to cause an outage. The tiering and model choices are set; the failover handler is in build now, with acceptance criteria that simulated 429 and 500 errors fail over in under 300ms without losing conversation state.</p>
+
+  <h2>Unit economics: what one conversation costs</h2>
+  <p>Per-conversation pricing only works if I know what a conversation costs to serve. I modelled it against the entry plan: <b>$29 a month for 50 conversations</b>, or about <b>$0.58 of revenue per conversation</b>.</p>
+  <p>Assumptions, per conversation: 8 visitor turns. Per turn, about 4,000 tokens of cached compiled prompt, 3,000 uncached tokens (reranked chunks, last 5 turns, summary, the message), and 250 output tokens, plus a small query-rewrite call and the output grounding check. The scope prompt is compiled with a frontier model at about 20,000 tokens in and 5,000 out, and recompiled about 4 times a month as the admin edits settings. Rates are list prices per million tokens when I modelled it: chat model $0.20 in, $0.02 cached, $1.25 out; chat fallback $0.80 / $0.08 / $4.00; frontier model $5.00 / $0.50 / $30.00.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Scenario (Starter plan)</th><th>LLM cost per conversation</th><th>LLM cost per month</th><th>% of $29</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Tiered, primary models</td><td>~$0.014</td><td>~$1.69<br><span style="color:var(--muted)">$0.69 chat + $1.00 scope prompt</span></td><td><b>~6%</b></td></tr>
+        <tr><td>Tiered, worst case</td><td>~$0.053</td><td>~$5.13<br><span style="color:var(--muted)">every chat on the fallback, 10 recompiles</span></td><td><b>~18%</b></td></tr>
+        <tr><td>Not tiered</td><td>~$0.34</td><td>~$18.08<br><span style="color:var(--muted)">frontier model answering chat too</span></td><td><b>~62%</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Three things this told me:</p>
+  <ul>
+    <li><b>The tier split is the margin.</b> Running chat on the frontier model would spend about 62% of the entry plan's revenue on LLM calls alone. Tiered, it is about 6%, and even a full month running on a fallback stays under a fifth.</li>
+    <li><b>On a small plan, the scope prompt is the bigger line.</b> A few frontier compiles a month cost more than all 50 conversations combined. That is fine because it happens a handful of times, and it is the strongest argument for keeping frontier calls at compile time and never putting one in the per-message path.</li>
+    <li><b>Prompt caching carries the chat cost.</b> The compiled prompt is the largest block in every turn; caching it is why a turn costs a fraction of a cent.</li>
+  </ul>
+  <p>This is LLM cost only. Embeddings, the vector index, hosting, and the integration layer are mostly shared across customers and are excluded. Exact rates will change as models are replaced; the ratios between the tiers are the point, and they have held across model generations.</p>
 
   <h2>Results so far</h2>
   <p>Early production, first paying enterprise customer, a deal I ran end to end from proof-of-concept through security review:</p>
@@ -301,15 +471,23 @@
   </ul>
   <p>The sample is early and the unanswered rate will move as query diversity grows; I would rather report a real number on a small base than a projected one.</p>
 
+  <h2>What did not work</h2>
+  <ul>
+    <li><b>The eight-step setup wizard.</b> Most people did not finish it. Asking for every setting before the customer had seen a working assistant front-loaded all the effort before any of the value. Replaced by one intent screen, with everything else asked later, in context.</li>
+    <li><b>A PDF/TXT knowledge base.</b> Loosely structured text gave retrieval nothing to filter on, so it pulled in loosely related passages - slower and less accurate at the same time. Moving to JSONL with metadata tags fixed both.</li>
+    <li><b>Replaying the full transcript every turn.</b> It felt like the safe way to keep context, but every long conversation got slower and more expensive with each message. The last 5 turns plus a running summary kept the context that mattered at a fraction of the tokens.</li>
+  </ul>
+
   <h2>What I would do next</h2>
   <ol>
+    <li><b>Put simulated conversations in the release gate.</b> Today multi-turn simulations are run by hand. Automating them - a model playing the visitor across whole conversations, run several times per case and scored on whether the agent succeeds every time, not just once - would catch the multi-turn failures a single-exchange eval misses.</li>
     <li><b>Close the loop on unanswered conversations</b> - route every "I don't know" into a weekly knowledge-base gap report, so the number that matters most has an owner and a workflow, not just a dashboard tile.</li>
     <li><b>Ship the autonomy selector.</b> Right now the agent's boldness is fixed per job; customers in regulated spaces want a dial, and an approvals queue behind it.</li>
     <li><b>A second CRM.</b> The Composio layer makes this mostly a config and eval problem rather than an integration rewrite, which was part of why I chose it.</li>
   </ol>
 
   <h2>What I owned</h2>
-  <p>Repositioning and the platform's system-prompt architecture; the guardrail precedence and validation model; the eval suite; onboarding; the latency and cost work (knowledge-base migration, context bounding, prompt caching, streaming); pricing, packaging, and the product-led growth motion; the go-to-market source of truth (competitor matrix, ICP, positioning, launch plan); and the CRM integration spec. Team: cross-functional, engineering and design, at a pre-Series-A company.</p>
+  <p>Repositioning and the platform's system-prompt architecture; the guardrail precedence and validation model; the eval suite; onboarding; the latency and cost work (knowledge-base migration, context bounding, prompt caching, streaming); the per-message runtime (input checks, query rewrite, hybrid retrieval and rerank, output grounding check); model selection, unit economics, and the multi-vendor failover design; pricing, packaging, and the product-led growth motion; the go-to-market source of truth (competitor matrix, ICP, positioning, launch plan); and the CRM integration spec. Team: cross-functional, engineering and design, at a pre-Series-A company.</p>
 
   <footer>
     Hariharan V (Hari) &middot; <a href="https://linkedin.com/in/vhharan1">linkedin.com/in/vhharan1</a> &middot; <a href="https://haribuilds.com/">haribuilds.com</a> &middot; <a href="https://app.convexa.nagent.ai/">Convexa live</a>
